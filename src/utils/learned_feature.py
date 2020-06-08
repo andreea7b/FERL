@@ -117,7 +117,7 @@ class LearnedFeature(object):
 											 idx_s0 < idx_s1, s0_delta, s1_delta))
 			full_data_array = np.vstack((full_data_array, np.array(data_tuples_to_append)))
 
-			# Add between traces tuples
+			# Add between FERL_traces tuples
 			if ordered_list.index(idx) > 0:
 				tuples_to_append = []
 				for other_traj_idx in ordered_list[:ordered_list.index(idx)]:
