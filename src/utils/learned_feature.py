@@ -3,34 +3,40 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import math
-from tqdm import tqdm, trange
+from tqdm import trange
 import itertools
-import random
-import pandas as pd
 from transform_input import transform_input, get_subranges
-from networks import DNN, DNNconvex, masked_DNN
+from networks import DNN
 from torch.utils.data import Dataset, DataLoader
 
 
 class LearnedFeature(object):
 	"""
-	Params:
-	nb_layers	number of hidden layers
-	nb_units	number of hidden units per layer
+	Learned Feature Class contains the feature function as well as data and training functionality.
+	----
+	Initialize:
+	nb_layers	number of hidden layers for the NN
+	nb_units	number of hidden units per layer for the NN
 
 	LF_dict		dict containing all settings for the learned feature, example see below
 
 	LF_dict = {'bet_data':5, 'sin':False, 'cos':False, 'rpy':False, 'lowdim':False, 'norot':False,
            'noangles':True, '6D_laptop':False, '6D_human':False, '9D_coffee':False, 'EErot':True,
-           'noxyz':False}
+           'noxyz':False, 'subspace_heuristic': False}
 
-	bet_data [int]: Number of copies of each Start-Goal pair to be added to the data set.
+	bet_data [int]		: Number of copies of each Start-Goal pair to be added to the data set.
+	subspace_heuristic	: if True, the heuristic to select the angle, rotation matrices, or euclidean subspace is used
+
+	sin, cos, noangles	: noangles means no angles in the input space, sin/cos and are transforms of the default 7 angles
+	norot, EErot, rpy	: if norot True no rotation matrices are in the input space, if EErot only the rotation matrix
+						of the endeffector and not of the other joints, rpy: the Roll/Pitch/Yaw representation is used
+	lowdim				: only the endeffector xyz, and rotation matrix plus the angles & object xyz
+	9D_coffee			: only the 9 entries of the Endeffector rotation matrix as input
+	6D_laptop, 6D_human	: only the endeffector xyz plus the xyz of the laptop or the human is used as input space
 	"""
 	def __init__(self, nb_layers, nb_units, LF_dict):
-		# ---- Initialize stored training data ---- #
-		# [trajectory] then np.array inside with [n_timesteps] x [input dim]
 
-		self.trajectory_list = []
+		self.trace_list = []
 		self.full_data_array = np.empty((0, 5), float)
 		self.start_labels = []
 		self.end_labels = []
@@ -40,16 +46,29 @@ class LearnedFeature(object):
 		self.LF_dict = LF_dict
 		self.models = []
 
-		if len(self.subspaces_list) == 1:
-			self.final_model = 0
-		else:
-			self.final_model = None
+		# set default
+		self.final_model = 0
 
 		# ---- Initialize Function approximators for each subspace ---- #
-		for sub_range in self.subspaces_list:
-			self.models.append(DNN(nb_layers, nb_units, sub_range[1] - sub_range[0]))
+		if self.LF_dict['subspace_heuristic']:
+			for sub_range in self.subspaces_list:
+				self.models.append(DNN(nb_layers, nb_units, sub_range[1] - sub_range[0]))
+		else:
+			self.models.append(DNN(nb_layers, nb_units, self.subspaces_list[-1][1]))
 
 	def function(self, x, model=None, torchify=False, norm=False):
+		"""
+			Feature Function used for Training & in Trajopt after Feature Learning
+			----
+			Input:
+			x			Nx97 tensor raw state input
+			model		which model to use
+			torchify	if the output should be a torch tensor
+			norm		if the output should be normalized
+
+			Output:
+			y 			Nx1 output tensor
+		"""
 
 		if model is None: # then called from TrajOpt so return normalized final model
 			model = self.final_model
@@ -61,9 +80,9 @@ class LearnedFeature(object):
 		# Transform the input
 		x = transform_input(x, self.LF_dict)
 
-		# transform to the model specific subspace input
-		range = self.subspaces_list[model]
-		x = x[:, range[0]:range[1]]
+		if self.LF_dict['subspace_heuristic']: # transform to the model specific subspace input
+			sub_range = self.subspaces_list[model]
+			x = x[:, sub_range[0]:sub_range[1]]
 		y = self.models[model](x)
 
 		if norm:
@@ -76,20 +95,37 @@ class LearnedFeature(object):
 			return y
 
 	def input_torchify(self, x):
+		"""
+			Transforms numpy input to torch tensors.
+		"""
 		if not torch.is_tensor(x):
 			x = torch.Tensor(x)
 		if len(x.shape) == 1:
 			x = torch.unsqueeze(x, axis=0)
 		return x
 
-	def add_data(self, trajectory, start_label=0.0, end_label=1.0):
-		# trajectory is Tx7 np.array
-		self.trajectory_list.append(trajectory)
+	def add_data(self, feature_trace, start_label=0.0, end_label=1.0):
+		"""
+			Adding feature traces during data collection.
+			----
+			Input:
+			feature_trace 	feature trace in angle space nx7 np.array
+			start_label		feature value at start of the trace
+			end_label		feature value at end of the trace
+		"""
+		self.trace_list.append(feature_trace)
 		self.start_labels.append(start_label)
 		self.end_labels.append(end_label)
 
 	def get_train_test_arrays(self, train_idx, test_idx):
-		"""Input: the idx of the trajectories for train & test"""
+		"""
+			Create the full data array of tuples and a train & test tuple set
+			----
+			Input:
+			train_idx, test_idx		a list of the train/test indices of the trace_list
+
+			Output: test & train data arrays of tuples
+		"""
 		full_data_array = np.empty((0, 5), float)
 		ordered_list = train_idx + test_idx
 		test_set_idx = None
@@ -100,7 +136,7 @@ class LearnedFeature(object):
 				# log where that is so we can split the full array later
 				test_set_idx = full_data_array.shape[0]
 			data_tuples_to_append = []
-			for combi in list(itertools.combinations(range(self.trajectory_list[idx].shape[0]), 2)):
+			for combi in list(itertools.combinations(range(self.trace_list[idx].shape[0]), 2)):
 				# Sample two points on that trajectory trace.
 				idx_s0, idx_s1 = combi
 
@@ -109,21 +145,21 @@ class LearnedFeature(object):
 				s1_delta = 0
 				if idx_s0 == 0:
 					s0_delta = -self.start_labels[idx]
-				if idx_s1 == self.trajectory_list[idx].shape[0] - 1:
+				if idx_s1 == self.trace_list[idx].shape[0] - 1:
 					s1_delta = 1. - self.end_labels[idx]
 
 				data_tuples_to_append.append((
-											 self.trajectory_list[idx][idx_s0, :], self.trajectory_list[idx][idx_s1, :],
-											 idx_s0 < idx_s1, s0_delta, s1_delta))
+					self.trace_list[idx][idx_s0, :], self.trace_list[idx][idx_s1, :],
+					idx_s0 < idx_s1, s0_delta, s1_delta))
 			full_data_array = np.vstack((full_data_array, np.array(data_tuples_to_append)))
 
 			# Add between FERL_traces tuples
 			if ordered_list.index(idx) > 0:
 				tuples_to_append = []
 				for other_traj_idx in ordered_list[:ordered_list.index(idx)]:
-					S_tuple = [(self.trajectory_list[other_traj_idx][0, :], self.trajectory_list[idx][0, :], 0.5,
+					S_tuple = [(self.trace_list[other_traj_idx][0, :], self.trace_list[idx][0, :], 0.5,
 								-self.start_labels[other_traj_idx], -self.start_labels[idx])] * self.LF_dict['bet_data']
-					G_tuple = [(self.trajectory_list[other_traj_idx][-1, :], self.trajectory_list[idx][-1, :], 0.5,
+					G_tuple = [(self.trace_list[other_traj_idx][-1, :], self.trace_list[idx][-1, :], 0.5,
 								1 - self.end_labels[other_traj_idx], 1 - self.end_labels[idx])] * self.LF_dict['bet_data']
 					tuples_to_append = tuples_to_append + S_tuple + G_tuple
 				full_data_array = np.vstack((full_data_array, np.array(tuples_to_append)))
@@ -136,11 +172,22 @@ class LearnedFeature(object):
 		return test_data_array, train_data_array
 
 	def select_subspace(self, epochs, batch_size, learning_rate, weight_decay, s_g_weight):
-		n_test = int(math.floor(len(self.trajectory_list) * 0.5))
+		"""
+			If heuristic: select the subspace model, otherwise: initialize optimizers & create data tuple array
+			----
+			Input:
+			epochs, batch_size, learning_rate, weight_decay, s_g_weight
+
+			Output: optimizer of the choosen final model
+		"""
+		if len(self.trace_list) == 1 and self.LF_dict['subspace_heuristic']:
+			print("Subspace Heuristic needs at least two Feature Traces to work.")
+
+		n_test = int(math.floor(len(self.trace_list) * 0.5))
 		print("Select subspace training, testing on " + str(n_test) + " unseen Trajectory")
 		# split trajectory list
-		test_idx = np.random.choice(np.arange(len(self.trajectory_list)), size=n_test, replace=False)
-		train_idx = np.setdiff1d(np.arange(len(self.trajectory_list)), test_idx)
+		test_idx = np.random.choice(np.arange(len(self.trace_list)), size=n_test, replace=False)
+		train_idx = np.setdiff1d(np.arange(len(self.trace_list)), test_idx)
 
 		test_data_array, train_data_array = self.get_train_test_arrays(train_idx.tolist(), test_idx.tolist())
 
@@ -157,12 +204,17 @@ class LearnedFeature(object):
 			optimizers.append(optim.Adam(self.models[i].parameters(), lr=learning_rate, weight_decay=weight_decay))
 
 		# unnecessary if only one subspace
-		if len(self.subspaces_list) ==1:
-			print("Only one subspace.")
+		if len(self.subspaces_list) ==1 or self.LF_dict['subspace_heuristic']:
+			print("No subspace selection performed.")
 			return optimizers[0]
 
-		in_train_losses = [[] for _ in range(len(self.subspaces_list))]
-		in_test_losses = [[] for _ in range(len(self.subspaces_list))]
+		train_losses = [[] for _ in range(len(self.subspaces_list))]
+		test_losses = [[] for _ in range(len(self.subspaces_list))]
+
+		# check if any non-standard label is used
+		norm_per_epoch = False
+		if sum([l != 0 for l in self.start_labels]) > 0 or sum([l != 1 for l in self.end_labels]) > 0:
+			norm_per_epoch = True
 
 		with trange(epochs) as T:
 			for t in T:
@@ -170,38 +222,38 @@ class LearnedFeature(object):
 				T.set_description('epoch %i' % i)
 
 				# Needed if non-standard labeling is used
-				# for idx in range(self.LF_dict['n_ensamble']):
-				# 	self.update_normalizer(idx)
+				if norm_per_epoch:
+					for idx in range(len(self.models)):
+						self.update_normalizer(idx)
 
 				for i, model in enumerate(self.models):
 					avg_in_loss = []
 					for batch in train_loader:
 						optimizers[i].zero_grad()
-						loss = self.in_traj_loss(batch, model_idx=i, s_g_weight=s_g_weight)
+						loss = self.FERL_loss(batch, model_idx=i, s_g_weight=s_g_weight)
 						loss.backward()
 						optimizers[i].step()
 						avg_in_loss.append(loss.item())
 					# self.update_normalizer(i) # technically correct but costs a lot of compute
 
-					in_train_losses[i].append(sum(avg_in_loss) / len(avg_in_loss))
+					train_losses[i].append(sum(avg_in_loss) / len(avg_in_loss))
 
 				# calculate test loss
 				for i, model in enumerate(self.models):
 					avg_in_loss = []
 					for batch in test_loader:
-						loss = self.in_traj_loss(batch, model_idx=i, s_g_weight=s_g_weight)
+						loss = self.FERL_loss(batch, model_idx=i, s_g_weight=s_g_weight)
 						avg_in_loss.append(loss.item())
 					# log over training
-					in_test_losses[i].append(sum(avg_in_loss) / len(avg_in_loss))
+					test_losses[i].append(sum(avg_in_loss) / len(avg_in_loss))
 
-				T.set_postfix(in_test_loss=[loss[-1] for loss in in_test_losses])
+				T.set_postfix(test_loss=[loss[-1] for loss in test_losses])
 
 		for idx in range(len(self.models)):
 			self.update_normalizer(idx)
 
-		# select final model
-		# Method 1: Take lowest last test loss
-		final_test_losses = [loss[-1] for loss in in_test_losses]
+		# select final model; Take lowest last test loss
+		final_test_losses = [loss[-1] for loss in test_losses]
 		val, last_loss_idx = min((val, idx) for (idx, val) in enumerate(final_test_losses))
 
 		print("Model of subspace " + str(last_loss_idx) + "selected as final model")
@@ -210,7 +262,12 @@ class LearnedFeature(object):
 		return optimizers[last_loss_idx]
 
 	def update_normalizer(self, model_idx):
-		# log min/max on all data until now
+		"""
+			Update the max & min labels used for normalization based on all trace tuples in the dataset.
+			----
+			Input:
+			model_idx	index of the model to normalize
+		"""
 		s_0s_array = np.array([tup[0] for tup in self.full_data_array]).squeeze()
 		s_1s_array = np.array([tup[1] for tup in self.full_data_array]).squeeze()
 		s0_logits = self.function(s_0s_array, model=model_idx).view(-1).detach()
@@ -219,7 +276,17 @@ class LearnedFeature(object):
 		self.max_labels[model_idx] = np.amax(all_logits)
 		self.min_labels[model_idx] = np.amin(all_logits)
 	
-	def in_traj_loss(self, batch, model_idx, s_g_weight):
+	def FERL_loss(self, batch, model_idx, s_g_weight):
+		"""
+			Calculate the FERL Loss for a model index, start & goal tuple weights, over a batch of tuples.
+			----
+			Input:
+			batch		dict with the batch data of tuples (s1, s2, l1, l2, label)
+			model_idx	index of the model to calculate the loss for
+			s_g_weight	numeric value how strong tuples of the start & end state of traces are weighted in the loss
+
+			output: 	scalar loss
+		"""
 		# arrays of the states
 		s_1s_array = batch['s1']
 		s_2s_array = batch['s2']
@@ -246,21 +313,28 @@ class LearnedFeature(object):
 		return loss
 
 	def train(self, epochs=100, batch_size=32, learning_rate=1e-3, weight_decay=0.001, s_g_weight=10.):
+		"""
+			Train the Feature function with the current data. Settings self-explanatory.
+			----
+			Input:
+			epochs, batch_size, learning_rate, weight_decay, s_g_weight
+
+			Output: train_losses as list
+		"""
 		# Heuristic to select subspace by training for 10 epochs a NN on each of them
 		final_mod_optimizer = self.select_subspace(10, batch_size, learning_rate, weight_decay, s_g_weight)
 		# Train on full dataset
 		print("Train subspace model " + str(self.final_model) + " on all " + str(
-			len(self.trajectory_list)) + " Trajectories")
+			len(self.trace_list)) + " Trajectories")
 		train_dataset = FeatureLearningDataset(self.full_data_array)
 		train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
 		# check if any non-standard label is used
+		norm_per_epoch = False
 		if sum([l != 0 for l in self.start_labels]) > 0 or sum([l != 1 for l in self.end_labels]) > 0:
 			norm_per_epoch = True
-		else:
-			norm_per_epoch = False
 
-		in_train_losses = []
+		train_losses = []
 		with trange(epochs) as T:
 			for t in T:
 				# Description will be displayed on the left
@@ -273,23 +347,23 @@ class LearnedFeature(object):
 				avg_in_loss = []
 				for batch in train_loader:
 					final_mod_optimizer.zero_grad()
-					loss = self.in_traj_loss(batch, model_idx=self.final_model, s_g_weight=s_g_weight)
+					loss = self.FERL_loss(batch, model_idx=self.final_model, s_g_weight=s_g_weight)
 					loss.backward()
 					final_mod_optimizer.step()
 					avg_in_loss.append(loss.item())
 
-					in_train_losses.append(sum(avg_in_loss) / len(avg_in_loss))
+					train_losses.append(sum(avg_in_loss) / len(avg_in_loss))
 
-				T.set_postfix(train_loss=in_train_losses[-1])
+				T.set_postfix(train_loss=train_losses[-1])
 
 		self.update_normalizer(self.final_model)
 
 		print("Final model trained!")
-		return in_train_losses
+		return train_losses
 
 
 class FeatureLearningDataset(Dataset):
-	"""Feature Learning dataset."""
+	"""Feature Learning dataset of Tuples."""
 
 	def __init__(self, array_of_tuples):
 		self.array_of_tuples = array_of_tuples
@@ -309,70 +383,3 @@ class FeatureLearningDataset(Dataset):
 				  }
 
 		return sample
-
-
-class RegressionFeature(object):
-	"""
-	tbd.
-	"""
-	def __init__(self, nb_layers, nb_units, input_dim, output_dim=1, activation="softplus"):
-		# ---- Initialize Function approximator ---- #
-		self.torch_function = DNN(nb_layers, nb_units, input_dim, activation)
-
-		# ---- Initialize stored training data ---- #
-		self.feature_vector = np.empty((0, input_dim), float)
-		self.regression_labels = np.empty((0, output_dim), float)
-
-	def function(self, x, torchify=False):
-		x = torch.Tensor(x)
-		y = self.torch_function(x)
-		if torchify:
-			return y
-		return y.detach()
-
-	def add_data(self, trajectory, regression_label):
-		# trajectory is Tx7 np.array, lable is Tx1
-		self.feature_vector = np.vstack((self.feature_vector, trajectory))
-		self.regression_labels = np.vstack((self.regression_labels, regression_label))
-
-	def train(self, p_train=0.8, epochs=100, batch_size=64, learning_rate=1e-3):
-		# trains with current dataset & sends back test error
-		# split into train & test
-		n_samples = self.feature_vector.shape[0]
-		indices = np.arange(n_samples)
-		np.random.shuffle(indices)
-
-		train_inds = indices[:int(n_samples*p_train)]
-		test_inds = indices[int(n_samples*p_train):]
-
-		train = torch.utils.data.TensorDataset(torch.Tensor(self.feature_vector[train_inds]), torch.Tensor(self.regression_labels[train_inds]))
-		train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size, shuffle=False)
-		# initialize optimizer
-		criterion = nn.MSELoss()
-		optimizer = optim.SGD(self.torch_function.parameters(), lr=learning_rate, momentum=0.9)
-
-		train_losses = []
-		test_losses = []
-		for epoch in range(epochs):
-			# SGD loop
-			for i, data in enumerate(train_loader, 0):
-				inputs, labels = data
-				# zero the parameter gradients
-				optimizer.zero_grad()
-				# forward + backward + optimize
-				outputs = self.torch_function(inputs)
-				loss = criterion(outputs, labels)
-				loss.backward()
-				optimizer.step()
-
-			# calculate test_loss
-			train_loss = criterion(self.torch_function(torch.Tensor(self.feature_vector[train_inds])),
-								   torch.Tensor(self.regression_labels[train_inds]))
-			test_loss = criterion(self.torch_function(torch.Tensor(self.feature_vector[test_inds])),
-								  torch.Tensor(self.regression_labels[test_inds]))
-			train_losses.append(train_loss.item())
-			test_losses.append(test_loss.item())
-			if epoch % 100 == 99:
-				print('Epoch {}, Test loss:'.format(epoch), test_loss.item(), 'Train loss:', train_loss.item())
-		print('Finished Training')
-		return np.array(train_losses), np.array(test_losses)

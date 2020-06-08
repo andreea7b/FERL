@@ -3,6 +3,7 @@ import torch
 
 def transform_input(x, trans_dict):
 	"""
+	transforms x, Tx97D raw space input tensor to the desired input space tensor as specified in trans_dict.
 	Input
 		- Tx97D torch Tensor from environment
 		- trans_dict with all settings
@@ -74,6 +75,13 @@ def transform_input(x, trans_dict):
 
 
 def get_subranges(setting_dict):
+	"""
+	Get the subranges for a specific input space transformation setting.
+	Input
+		setting_dict, contains the transformation settings.
+	Output:
+		List of Lists, the latter containing the start and end indices of the respective subspaces.
+	"""
 	if setting_dict['6D_laptop'] or setting_dict['6D_human']:
 		subranges = [[0, 6]]
 		return subranges

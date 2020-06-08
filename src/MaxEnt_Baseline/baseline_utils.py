@@ -9,7 +9,7 @@ from src.utils.networks import masked_DNN
 
 # stuff for TarjOpt
 from src.planners.trajopt_planner import TrajoptPlanner
-from src.utils.eval_smoothness_utils import *
+from src.utils.traces_plot_utils import *
 from src.utils.environment import Environment
 
 
