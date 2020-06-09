@@ -134,9 +134,15 @@ class PHRILearner(object):
 		self.environment.weights = np.maximum(curr_weight, np.zeros(curr_weight.shape))
 
 	def all_update(self, update):
+        """
+        Update based on all feature values.
+        """
 		return self.environment.weights - self.step_size * update
 
 	def max_update(self, update):
+        """
+        Update based only on the maximal feature difference.
+        """
 		# Get index of maximal change.
 		max_idx = np.argmax(np.fabs(update))
 
