@@ -6,11 +6,17 @@ from planners.trajopt_planner import TrajoptPlanner
 import torch
 import os, sys
 
-nb_layers = 3
-nb_units = 32
-n_samples = 10000
-
-def generate_gt_data(n_samples, environment, feature):
+def sample_data(environment, feature, n_samples=10000):
+    """
+    Generates feature data with the ground truth feature function.
+    Params:
+        environment -- environment where the feature lives
+        feature -- string representing the feature to sample
+        n_samples -- number of samples (default: 10000)
+    Returns:
+        train_points -- configuration space waypoint samples
+        regression_labels -- feature labels for train_points
+    """
 	n_per_dim = math.ceil(n_samples ** (1 / 7))
 	#  we are in 7D radian space
 	dim_vector = np.linspace(0, 2 * np.pi, n_per_dim)
@@ -27,10 +33,6 @@ def generate_gt_data(n_samples, environment, feature):
 			rl = human_features(environment, sample)
 		elif feature == "laptop":
 			rl = laptop_features(environment, sample)
-		elif feature == "EEcoord":
-			rl = waypt_to_EEcoords(environment, sample)
-		elif feature == "EEorientation":
-			rl = waypt_to_EEorientation(environment, sample)
 		elif feature == "proxemics":
 			rl = proxemics_features(environment, sample)
 		elif feature == "betweenobjects":
@@ -42,33 +44,18 @@ def generate_gt_data(n_samples, environment, feature):
 	regression_labels = np.array(regression_labels) / max(regression_labels)
 	return np.array(train_points), regression_labels
 
-def waypt_to_EEcoords(environment, waypt):
-	if len(waypt) < 10:
-		waypt_openrave = np.append(waypt.reshape(7), np.array([0, 0, 0]))
-		waypt_openrave[2] += math.pi
-
-	environment.robot.SetDOFValues(waypt_openrave)
-	coords = np.array(robotToCartesian(environment.robot))
-	return coords[6][:3]
-
-def waypt_to_EEorientation(environment, waypt):
-	if len(waypt) < 10:
-		waypt_openrave = np.append(waypt.reshape(7), np.array([0, 0, 0]))
-		waypt_openrave[2] += math.pi
-
-	environment.robot.SetDOFValues(waypt_openrave)
-	orientations = np.array(robotToOrientation(environment.robot))
-	return orientations[6].flatten()
-
 # -- Distance to Table -- #
 
 def table_features(environment, waypt):
-	"""
-	Computes the total feature value over waypoints based on 
-	z-axis distance to table.
-	---
-	input waypoint, output scalar feature
-	"""
+    """
+    Computes the total feature value over waypoints based on z-axis distance to table.
+    ---
+    Params:
+        environment -- environment where the feature lives
+        waypt -- single waypoint
+    Returns:
+        dist -- scalar feature
+    """
 	if len(waypt) < 10:
 		waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
 		waypt[2] += math.pi
@@ -81,12 +68,16 @@ def table_features(environment, waypt):
 # -- Coffee (or z-orientation of end-effector) -- #
 
 def coffee_features(environment, waypt):
-	"""
-	Computes the coffee orientation feature value for waypoint
-	by checking if the EE is oriented vertically.
-	---
-	input waypoint, output scalar feature
-	"""
+    """
+    Computes the coffee orientation feature value for waypoint
+    by checking if the EE is oriented vertically.
+    ---
+    Params:
+        environment -- environment where the feature lives
+        waypt -- single waypoint
+    Returns:
+        dist -- scalar feature
+    """
 	if len(waypt) < 10:
 		waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
 		waypt[2] += math.pi
@@ -99,12 +90,16 @@ def coffee_features(environment, waypt):
 # -- Distance to Laptop -- #
 
 def laptop_features(environment, waypt):
-	"""
-	Computes distance from end-effector to laptop in xy coords
-	input trajectory, output scalar distance where 
-		0: EE is at more than 0.4 meters away from laptop
-		+: EE is closer than 0.4 meters to laptop
-	"""
+    """
+    Computes distance from end-effector to laptop in xy coords
+    Params:
+        environment -- environment where the feature lives
+        waypt -- single waypoint
+    Returns:
+        dist -- scalar distance where
+            0: EE is at more than 0.3 meters away from laptop
+            +: EE is closer than 0.3 meters to laptop
+    """
 	if len(waypt) < 10:
 		waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
 		waypt[2] += math.pi
@@ -121,12 +116,16 @@ def laptop_features(environment, waypt):
 # -- Distance to Human -- #
 
 def human_features(environment, waypt):
-	"""
-	Computes distance from end-effector to human in xy coords
-	input trajectory, output scalar distance where 
-		0: EE is at more than 0.4 meters away from human
-		+: EE is closer than 0.4 meters to human
-	"""
+    """
+    Computes distance from end-effector to human in xy coords
+    Params:
+        environment -- environment where the feature lives
+        waypt -- single waypoint
+    Returns:
+        dist -- scalar distance where
+            0: EE is at more than 0.4 meters away from human
+            +: EE is closer than 0.4 meters to human
+    """
 	if len(waypt) < 10:
 		waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
 		waypt[2] += math.pi
@@ -142,12 +141,16 @@ def human_features(environment, waypt):
 # -- Proxemics -- #
 
 def proxemics_features(environment, waypt):
-	"""
-	Computes distance from end-effector to human proxemics in xy coords
-	input trajectory, output scalar distance where 
-		0: EE is at more than 0.3 meters away from human
-		+: EE is closer than 0.3 meters to human
-	"""
+    """
+    Computes distance from end-effector to human proxemics in xy coords
+    Params:
+        environment -- environment where the feature lives
+        waypt -- single waypoint
+    Returns:
+        dist -- scalar distance where
+            0: EE is at more than 0.3 meters away from human
+            +: EE is closer than 0.3 meters to human
+    """
 	if len(waypt) < 10:
 		waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
 		waypt[2] += math.pi
@@ -164,9 +167,16 @@ def proxemics_features(environment, waypt):
 	return -dist
 
 def betweenobjects_features(environment, waypt):
-	"""
-	Computes distance from end-effector to 2 objects.
-	"""
+    """
+    Computes distance from end-effector to 2 objects in xy coords.
+    Params:
+        environment -- environment where the feature lives
+        waypt -- single waypoint
+    Returns:
+        dist -- scalar distance where
+            0: EE is at more than 0.2 meters away from the objects and between
+            +: EE is closer than 0.2 meters to the objects and between
+    """
 	if len(waypt) < 10:
 		waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
 		waypt[2] += math.pi
@@ -197,13 +207,14 @@ def betweenobjects_features(environment, waypt):
 		return -dist2
 	return -min(dist1, dist2)
 
-def main(feature):
+def generate_gt_data(feature):
 	# create environment instance
 	print "Creating environment"
-	environment = Environment("jaco_dynamics",
-							  {'OBJECT1': [-0.6,-0.2,0.0], 'OBJECT2': [-0.2,0.0,0.0]}
-							  #{'HUMAN_CENTER': [-0.2,-0.5,0.6], 'LAPTOP_CENTER': [-0.8, 0.0, 0.0]}
-							  , [feature], [1.0], np.array([0.0]), viewer=False)
+    if feature == "between_objects":
+        objects = {'OBJECT1': [-0.6,-0.2,0.0], 'OBJECT2': [-0.2,0.0,0.0]}
+    else:
+        objects = {'HUMAN_CENTER': [-0.2,-0.5,0.6], 'LAPTOP_CENTER': [-0.8, 0.0, 0.0]}
+	environment = Environment("jaco_dynamics", objects, [feature], [1.0], np.array([0.0]), viewer=False)
 	print "Finished environment"
 	# create Learned_Feature
 	environment.new_learned_feature(nb_layers, nb_units)
@@ -220,8 +231,7 @@ def main(feature):
 					 "L29": [-0.4, 0.3, 0.0], "L30": [-0.6, 0.3, 0.0]}
 		for lidx in positions.keys():
 			environment.object_centers["LAPTOP_CENTER"] = positions[lidx]
-			train, labels = generate_gt_data(n_samples, environment, "laptop")
-			#train, labels = train[labels >= 0], labels[labels >= 0]
+			train, labels = sample_data(environment, "laptop")
 			# Create raw features
 			train_raw = np.empty((0, 97), float)
 			for dp in train:
@@ -229,28 +239,16 @@ def main(feature):
 			here = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '../../'))
 			np.savez(here+'/data/gtdata/data_{}{}.npz'.format(feature, lidx), x=train_raw, y=labels)
 	else:
-		train, labels = generate_gt_data(n_samples, environment, feature)
-		train, labels = train[labels >= -0.1016], labels[labels >= -0.1016]
+		train, labels = sample_data(environment, feature)
 		# Create raw features
 		train_raw = np.empty((0, 97), float)
 		for dp in train:
 			train_raw = np.vstack((train_raw, environment.raw_features(dp)))
 		here = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '../../'))
 		np.savez(here+'/data/gtdata/data_{}.npz'.format(feature), x=train_raw, y=labels)
-	import pdb;pdb.set_trace()
 	print "Finished generating data."
-	# feed perfect data to learned_feature & train NN
-	labels = labels.reshape(len(labels),1)
-	environment.learned_features[-1].add_data(train, labels)
-	environment.learned_features[-1].train(p_train=0.8, epochs=1000, batch_size=16, learning_rate=1e-2)
-
-	# safe parameter values in checkpoint
-	here = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '../'))
-	torch.save(environment.learned_features[-1].torch_function.state_dict(), here+'/data/model_checkpoints/check.pt')
-	print("Model parameters saved")
-
 
 if __name__ == '__main__':
 	feat = sys.argv[1]
-	main(feat)
+	generate_gt_data(feat)
 

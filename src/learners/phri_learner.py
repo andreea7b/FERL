@@ -55,7 +55,7 @@ class PHRILearner(object):
 			def u_jacobian(u):
 				return 2*np.transpose(u)
 
-			def u_hessian(u):	
+			def u_hessian(u):
 				return 2 * np.eye(u.shape[0])
 
 			def u_constraint(u):
@@ -65,7 +65,7 @@ class PHRILearner(object):
 				Phi_H = sum(H_features)
 				cost = (Phi_H - Phi_p[i])**2
 				return cost
-			
+
 			def u_unconstrained(u):
 				lambda_u = 5000
 				u_p = np.reshape(u, (7,1))
@@ -76,15 +76,7 @@ class PHRILearner(object):
 				return cost
 
 			# Compute optimal action.
-			nonlinear_constraint = NonlinearConstraint(u_constraint, 0, 0, jac='2-point', hess=BFGS())
-			#u_h_opt = minimize(u_constrained, np.squeeze(u_h), method='trust-constr',
-			#				jac=u_jacobian, hess=u_hessian,
-			#				constraints=[nonlinear_constraint], options={'xtol': 0, 'gtol': 0,'verbose': 2})
 			u_h_opt = minimize(u_unconstrained, np.squeeze(u_h), method='L-BFGS-B', jac=u_jacobian)
-			#u_h_opt = minimize(u_constrained, np.zeros((7,1)), method='SLSQP',
-			#					constraints=({'type': 'eq', 'fun': u_constraint, 'args': (i,)}),
-			#					options={'maxiter': 10, 'ftol': 1e-6, 'disp': True})
-			#u_h_opt = differential_evolution(u_constrained, np.zeros((7,1)), constraints=(nonlinear_constraint))
 			u_h_star = np.reshape(u_h_opt.x, (7, 1))
 
 			waypts_deform_p = traj.deform(u_h_star, t, self.alpha, self.n).waypts

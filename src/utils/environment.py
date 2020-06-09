@@ -22,13 +22,13 @@ class Environment(object):
 		self.object_centers = object_centers
 		plotTable(self.env)
 		plotTableMount(self.env, self.bodies)
-		#plotCabinet(self.env)
+		plotCabinet(self.env)
 		for center in object_centers.keys():
 			if center == "LAPTOP_CENTER":
 				plotLaptop(self.env, self.bodies, object_centers[center])
-			#else:
-			#	plotSphere(self.env, self.bodies, object_centers[center], 0.015)
-		
+			else:
+				plotSphere(self.env, self.bodies, object_centers[center], 0.015)
+
 		# Create the initial feature function list.
 		self.feature_func_list = []
 		self.feature_list = feat_list
@@ -63,7 +63,11 @@ class Environment(object):
 		"""
 		Computes the features for a given trajectory.
 		---
-		input trajectory waypoints, a list of feature indicies, output list of feature values (T x num_features)
+        Params:
+            waypts -- trajectory waypoints
+            feat_idx -- list of feature indices (optional)
+        Returns:
+            features -- list of feature values (T x num_features)
 		"""
 		# if no list of idx is provided use all of them
 		if feat_idx is None:
@@ -80,6 +84,15 @@ class Environment(object):
 
 	# -- Compute single feature for single waypoint -- #
 	def featurize_single(self, waypt, feat_idx):
+		"""
+		Computes given feature value for a given waypoint.
+		---
+        Params:
+            waypt -- single waypoint
+            feat_idx -- feature index
+        Returns:
+            featval -- feature value
+		"""
 		# If it's a learned feature, feed in raw_features to the NN.
 		if self.feature_list[feat_idx] == 'learned_feature':
 			waypt = self.raw_features(waypt)
@@ -94,6 +107,14 @@ class Environment(object):
 
 	# -- Return raw features -- #
 	def raw_features(self, waypt):
+		"""
+		Computes raw state space features for a given waypoint.
+		---
+        Params:
+            waypt -- single waypoint
+        Returns:
+            raw_features -- list of raw feature values
+		"""
 		object_coords = np.array([self.object_centers[x] for x in self.object_centers.keys()])
 		if torch.is_tensor(waypt):
 			Tall = self.get_torch_transforms(waypt)
@@ -112,6 +133,14 @@ class Environment(object):
 			return np.reshape(np.concatenate((waypt.squeeze(), orientations.flatten(), coords.flatten(), object_coords.flatten())), (-1,))
 
 	def get_torch_transforms(self, waypt):
+		"""
+		Computes torch transforms for given waypoint.
+		---
+        Params:
+            waypt -- single waypoint
+        Returns:
+            Tall -- Transform in torch for every joint (7D)
+		"""
 		# Manually compute a link transform given theta, alpha, and D (a is assumed to be 0).
 		def transform(theta, alpha, D):
 			T = torch.zeros([4, 4])
@@ -190,11 +219,19 @@ class Environment(object):
 	# -- Instantiate a new learned feature -- #
 
 	def new_learned_feature(self, nb_layers, nb_units, checkpoint_name=None):
-		LF_dict = {'convex': False, 'masked': False, 'n_ensamble': 1, 'bet_loss': "in_loss", 'bet_data': 1,
+		"""
+        Adds a new learned feature to the environment.
+        --
+        Params:
+            nb_layers -- number of NN layers
+            nb_units -- number of NN units per layer
+            checkpoint_name -- name of NN model to load (optional)
+        """
+        LF_dict = {'convex': False, 'masked': False, 'n_ensamble': 1, 'bet_loss': "in_loss", 'bet_data': 1,
 				   'activation': "softplus", 'sin': False, 'cos': False, 'rpy': False, 'lowdim': False, 'EErot': False,
 				   'noxyz': False, 'norot': True, 'noangles': True, '6D_laptop': False, '6D_human': False,
 				   '9D_coffee': False}
-		self.learned_features.append(LearnedFeature(nb_layers, nb_units, None, LF_dict))
+		self.learned_features.append(LearnedFeature(nb_layers, nb_units, LF_dict))
 		self.feature_list.append('learned_feature')
 		self.num_features += 1
 		# initialize new feature weight with zero
@@ -213,7 +250,10 @@ class Environment(object):
 		"""
 		Computes efficiency feature for waypoint, confirmed to match trajopt.
 		---
-		input waypoint, output scalar feature
+        Params:
+            waypt -- single waypoint
+        Returns:
+            dist -- scalar feature
 		"""
 
 		return np.linalg.norm(waypt[:7] - waypt[7:])**2
@@ -225,7 +265,10 @@ class Environment(object):
 		Computes the total feature value over waypoints based on 
 		y-axis distance to table.
 		---
-		input waypoint, output scalar feature
+        Params:
+            waypt -- single waypoint
+        Returns:
+            dist -- scalar feature
 		"""
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
@@ -243,7 +286,10 @@ class Environment(object):
 		Computes the total feature value over waypoints based on 
 		z-axis distance to table.
 		---
-		input waypoint, output scalar feature
+        Params:
+            waypt -- single waypoint
+        Returns:
+            dist -- scalar feature
 		"""
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
@@ -260,7 +306,10 @@ class Environment(object):
 		Computes the coffee orientation feature value for waypoint
 		by checking if the EE is oriented vertically.
 		---
-		input waypoint, output scalar feature
+        Params:
+            waypt -- single waypoint
+        Returns:
+            dist -- scalar feature
 		"""
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
@@ -269,7 +318,6 @@ class Environment(object):
 		self.robot.SetDOFValues(waypt)
 		EE_link = self.robot.GetLinks()[7]
 		Rx = EE_link.GetTransform()[:3,0]
-		#featval = abs(Rx[0]) + abs(Rx[1]) + abs(Rx[2]-1)
 		return 1 - EE_link.GetTransform()[:3,0].dot([0,0,1])
 
 	# -- Distance to Laptop -- #
@@ -277,9 +325,12 @@ class Environment(object):
 	def laptop_features(self, waypt):
 		"""
 		Computes distance from end-effector to laptop in xy coords
-		input trajectory, output scalar distance where 
-			0: EE is at more than 0.3 meters away from laptop
-			+: EE is closer than 0.3 meters to laptop
+        Params:
+            waypt -- single waypoint
+        Returns:
+            dist -- scalar distance where
+                0: EE is at more than 0.3 meters away from laptop
+                +: EE is closer than 0.3 meters to laptop
 		"""
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
@@ -298,9 +349,12 @@ class Environment(object):
 	def human_features(self, waypt):
 		"""
 		Computes distance from end-effector to human in xy coords
-		input trajectory, output scalar distance where 
-			0: EE is at more than 0.4 meters away from human
-			+: EE is closer than 0.4 meters to human
+        Params:
+            waypt -- single waypoint
+        Returns:
+            dist -- scalar distance where
+                0: EE is at more than 0.4 meters away from human
+                +: EE is closer than 0.4 meters to human
 		"""
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
@@ -319,9 +373,12 @@ class Environment(object):
 	def proxemics_features(self, waypt):
 		"""
 		Computes distance from end-effector to human proxemics in xy coords
-		input trajectory, output scalar distance where 
-			0: EE is at more than 0.3 meters away from human
-			+: EE is closer than 0.3 meters to human
+        Params:
+            waypt -- single waypoint
+        Returns:
+            dist -- scalar distance where
+                0: EE is at more than 0.3 meters away from human
+                +: EE is closer than 0.3 meters to human
 		"""
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
@@ -342,7 +399,13 @@ class Environment(object):
 
 	def betweenobjects_features(self, waypt):
 		"""
-		Computes distance from end-effector to 2 objects.
+		Computes distance from end-effector to 2 objects in xy coords.
+        Params:
+            waypt -- single waypoint
+        Returns:
+            dist -- scalar distance where
+			    0: EE is at more than 0.2 meters away from the objects and between
+			    +: EE is closer than 0.2 meters to the objects and between
 		"""
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
@@ -378,8 +441,7 @@ class Environment(object):
 
 	def table_constraint(self, waypt):
 		"""
-		Constrains z-axis of robot's end-effector to always be 
-		above the table.
+		Constrains z-axis of robot's end-effector to always be above the table.
 		"""
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
@@ -393,8 +455,7 @@ class Environment(object):
 
 	def coffee_constraint(self, waypt):
 		"""
-		Constrains orientation of robot's end-effector to be 
-		holding coffee mug upright.
+		Constrains orientation of robot's end-effector to be holding coffee mug upright.
 		"""
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))

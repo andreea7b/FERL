@@ -22,7 +22,7 @@ from kinova_msgs.srv import *
 from controllers.pid_controller import PIDController
 from planners.trajopt_planner import TrajoptPlanner
 from learners.phri_learner import PHRILearner
-from utils import ros_utils, openrave_utils, experiment_utils
+from utils import ros_utils, openrave_utils
 from utils.environment import Environment
 from utils.trajectory import Trajectory
 
@@ -70,39 +70,6 @@ class FeatureElicitator():
 			r.sleep()
 
 		print "----------------------------------"
-
-		# Ask whether to save experimental data for pHRI corrections.
-		print "Type [yes/y/Y] if you'd like to save experimental data."
-		line = raw_input()
-		if (line is not "yes") and (line is not "Y") and (line is not "y"):
-			print "Not happy with recording. Terminating experiment."
-		else:
-			print "Please type in the ID number (e.g. [0/1/2/...])."
-			ID = raw_input()
-			print "Please type in the task number."
-			task = raw_input()
-			print "Saving experimental data to file..."
-			settings_string = "ID" + ID + "_" + self.feat_method + "_" + "_".join(self.environment.feature_list) + "_task" + task
-			weights_filename = "weights_" + settings_string
-			betas_filename = "betas_" + settings_string
-			force_filename = "force_" + settings_string
-			interaction_pts_filename = "interaction_pts_" + settings_string
-			tracked_filename = "tracked_" + settings_string
-			deformed_filename = "deformed_" + settings_string
-			deformed_waypts_filename = "deformed_waypts_" + settings_string
-			replanned_filename = "replanned_" + settings_string
-			replanned_waypts_filename = "replanned_waypts_" + settings_string
-
-			self.expUtil.pickle_weights(weights_filename)
-			self.expUtil.pickle_betas(betas_filename)
-			self.expUtil.pickle_force(force_filename)
-			self.expUtil.pickle_interaction_pts(interaction_pts_filename)
-			self.expUtil.pickle_tracked_traj(tracked_filename)
-			self.expUtil.pickle_deformed_trajList(deformed_filename)
-			self.expUtil.pickle_deformed_wayptsList(deformed_waypts_filename)
-			self.expUtil.pickle_replanned_trajList(replanned_filename)
-			self.expUtil.pickle_replanned_wayptsList(replanned_waypts_filename)
-
 		ros_utils.stop_admittance_mode(self.prefix)
 
 	def load_parameters(self):
@@ -199,17 +166,6 @@ class FeatureElicitator():
 		self.feat_method = rospy.get_param("learner/type")
 		self.learner = PHRILearner(self.feat_method, self.environment, constants)
 
-		# ---- Experimental Utils ---- #
-		self.expUtil = experiment_utils.ExperimentUtils(self.save_dir)
-		# Update the list of replanned plans with new trajectory plan.
-		self.expUtil.update_replanned_trajList(0.0, self.traj_plan.waypts)
-		# Update the list of replanned waypoints with new waypoints.
-		self.expUtil.update_replanned_wayptsList(0.0, self.traj.waypts)
-
-		# Add learned feature artificially.
-		#self.environment.new_learned_feature(self.nb_layers, self.nb_units, checkpoint_name="model_laptop6D.pt")
-		
-
 	def register_callbacks(self):
 		"""
 		Sets up all the publishers/subscribers needed.
@@ -254,15 +210,8 @@ class FeatureElicitator():
 		# Check is start/goal has been reached.
 		if self.controller.path_start_T is not None:
 			self.reached_start = True
-			self.expUtil.set_startT(self.controller.path_start_T)
 		if self.controller.path_end_T is not None:
 			self.reached_goal = True
-			self.expUtil.set_endT(self.controller.path_end_T)
-
-		# Update the experiment utils executed trajectory tracker.
-		if self.reached_start and not self.reached_goal:
-			timestamp = time.time() - self.controller.path_start_T
-			self.expUtil.update_tracked_traj(timestamp, self.curr_pos)
 
 	def joint_torques_callback(self, msg):
 		"""
@@ -286,8 +235,6 @@ class FeatureElicitator():
 				self.interaction_time.append(timestamp)
 				if self.interaction_mode == False:
 					self.interaction_mode = True
-				self.expUtil.update_tauH(timestamp, torque_curr)
-				self.expUtil.update_interaction_point(timestamp, self.curr_pos)
 		else:
 			if self.interaction_mode == True:
 				# Check if betas are above CONFIDENCE_THRESHOLD
@@ -298,12 +245,9 @@ class FeatureElicitator():
 					self.feature_learning_mode = True
 					feature_learning_timestamp = time.time()
 					input_size = len(self.environment.raw_features(torque_curr))
-					self.environment.new_learned_feature(self.nb_layers, self.nb_units)#, checkpoint_name="model_laptop6D.pt")
+					self.environment.new_learned_feature(self.nb_layers, self.nb_units)
 					while True:
 						# Keep asking for input until we're happy.
-						#here = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '../'))
-						#with open(here+'/data/model_checkpoints/trajs_table_diverse.p', "rb") as fp:
-						#	feature_data = pickle.load(fp)
 						for i in range(self.N_QUERIES):
 							print "Need more data to learn the feature!"
 							self.feature_data = []
@@ -344,7 +288,6 @@ class FeatureElicitator():
 
 							# Add the newly collected data.
 							self.environment.learned_features[-1].add_data(feature_data, start_label, end_label)
-						import pdb;pdb.set_trace()
 						# Train new feature with data of increasing "goodness".
 						self.environment.learned_features[-1].train()
 
@@ -353,13 +296,6 @@ class FeatureElicitator():
 						line = raw_input()
 						if line == "yes" or line == "Y" or line == "y":
 							break
-
-					# Plot trajectory gradient
-					for w in np.linspace(0.0, 10.0, 21):
-						self.environment.weights[-1] = w
-						c = np.array([1, w/10, 0])
-						self.traj = self.planner.replan(self.start, self.goal, self.goal_pose, self.T, self.timestep)
-						openrave_utils.plotTraj(self.environment.env, self.environment.robot, self.environment.bodies, self.traj.waypts, size=0.015, color=c.tolist())
 
 					# Compute new beta for the new feature.
 					beta_new = self.learner.learn_betas(self.traj, torque_curr, timestamp, [self.environment.num_features - 1])[0]
@@ -377,25 +313,6 @@ class FeatureElicitator():
 				self.traj = self.planner.replan(self.start, self.goal, self.goal_pose, self.T, self.timestep, seed=self.traj_plan.waypts)
 				self.traj_plan = self.traj.downsample(self.planner.num_waypts)
 				self.controller.set_trajectory(self.traj)
-
-				# Update the experimental data with new weights and new betas.
-				timestamp = time.time() - self.controller.path_start_T
-				self.expUtil.update_weights(timestamp, self.environment.weights)
-				self.expUtil.update_betas(timestamp, betas)
-
-				# Update the list of replanned plans with new trajectory plan.
-				self.expUtil.update_replanned_trajList(timestamp, self.traj_plan.waypts)
-
-				# Update the list of replanned trajectory waypts with new trajectory.
-				self.expUtil.update_replanned_wayptsList(timestamp, self.traj.waypts)
-
-				# Store deformed trajectory plan.
-				traj_deform = self.traj.deform(torque_curr, timestamp, self.learner.alpha, self.learner.n)
-				deformed_traj = traj_deform.downsample(self.planner.num_waypts)
-				self.expUtil.update_deformed_trajList(timestamp, deformed_traj.waypts)
-
-				# Store deformed trajectory waypoints.
-				self.expUtil.update_deformed_wayptsList(timestamp, traj_deform.waypts)
 
 				# Turn off interaction mode.
 				self.interaction_mode = False
