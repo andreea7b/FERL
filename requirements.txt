@@ -105,7 +105,7 @@ python-dateutil==2.8.1
 python-qt-binding==0.2.19
 pythonids==0.1.40
 pytz==2020.1
-PyYAML==3.10
+PyYAML==5.1
 pyzmq==19.0.0
 qt-dotgraph==0.2.33
 qt-gui==0.2.33
