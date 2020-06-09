@@ -2,17 +2,45 @@ from baseline_utils import *
 from src.utils.transform_input import transform_input, get_subranges
 import random
 import torch.optim as optim
-from tqdm import tqdm, trange
+from tqdm import trange
 
 
 class DeepMaxEntIRL:
+	"""
+	This class contains the demonstrations, function, and training procedure to apply Deep Maximum Entropy IRL to
+	the 7DoF Robot arm, learning a reward/cost from demonstrations.
+
+	Initi:
+	s_g_exp_trajs	A list of lists, each sublist containing demonstrations with the same start & goal pair
+	goal_poses		List of goal poses for each start & goal pair
+	known_feat_list	List of strings with the known features
+	gen				The mode with which induced near optimal trajectories with the current cost are calculated
+	  				can be 'waypt' (get TrajOpt optimal trajectory and perturb waypoints)
+	  				or 'cost' (perturb the cost function slightly and get TrajOpt optimal trajectories for all of them)
+	T, timestep		Settings for TrajOpt
+	obj_center_dict	Dict of human & laptop positions used when calculating the known feature values
+	feat_range_dict	Dict of factors for the different features to scale them to 0-1. -> used to calculate known features
+
+
+	NN_dict			Settings for the cost function NN see example belo
+					NN_dict = {'n_layers': 2, 'n_units':128, 'sin':False, 'cos':False, 'noangles':True, 'norot':True, 'rpy':False, 'lowdim':False,
+						   '6D_laptop':False, '6D_human':False, '9D_coffee':False}
+
+	sin, cos, noangles	: noangles means no angles in the input space, sin/cos and are transforms of the default 7 angles
+	norot, EErot, rpy	: if norot True no rotation matrices are in the input space, if EErot only the rotation matrix
+						of the endeffector and not of the other joints, rpy: the Roll/Pitch/Yaw representation is used
+	lowdim				: only the endeffector xyz, and rotation matrix plus the angles & object xyz
+	9D_coffee			: only the 9 entries of the Endeffector rotation matrix as input
+	6D_laptop, 6D_human	: only the endeffector xyz plus the xyz of the laptop or the human is used as input space
+
+	"""
 
 	def __init__(self, s_g_exp_trajs, goal_poses, known_feat_list, NN_dict, gen, T=20., timestep=0.5,
 				 obj_center_dict = {'HUMAN_CENTER': [-0.6, -0.55, 0.0], 'LAPTOP_CENTER': [-0.8, 0., 0.]},
 				 feat_range_dict={'table': 0.98, 'coffee': 1.0, 'laptop': 0.3, 'human': 0.3, 'efficiency': 0.22,'proxemics': 0.3, 'betweenobjects': 0.2}):
 
 		# Create an Env with only ReLuNet as learned FT, weight 1
-		env, planner = init_env(feat_list=[], weights=[], object_centers=obj_center_dict, FEAT_RANGE=feat_range_dict)
+		env, planner = init_env(feat_list=[], weights=[], object_centers=obj_center_dict, feat_range=feat_range_dict)
 		self.planner = planner
 		# planner settings
 		self.T = T
@@ -51,15 +79,22 @@ class DeepMaxEntIRL:
 		self.max_label = 1.
 		self.min_label = 0.
 
-		# get the input dim
+		# get the input dim & instantiate cost NN
 		self.raw_input_dim = transform_input(torch.ones(97), NN_dict).shape[1]
-		if NN_dict['masked']:
-			self.cost_nn = masked_Net(NN_dict['n_layers'], NN_dict['n_units'], self.raw_input_dim, subspace_ranges=get_subranges(NN_dict),
-									  input_residuals=len(known_feat_list))
-		else:
-			self.cost_nn = ReLuNet(NN_dict['n_layers'], NN_dict['n_units'], self.raw_input_dim, input_residuals=len(known_feat_list))
+		self.cost_nn = ReLuNet(NN_dict['n_layers'], NN_dict['n_units'], self.raw_input_dim, input_residuals=len(known_feat_list))
 
-	def function(self, x, torchify=False, unnorm=False):
+	def function(self, x, torchify=False, norm=False):
+		"""
+			Cost Function used for Training & in Trajopt to calculate induced trajectories
+			----
+			Input:
+			x			Nx97 tensor raw state input
+			torchify	if the output should be a torch tensor
+			norm		if the output should be normalized
+
+			Output:
+			y 			Nx1 output tensor
+		"""
 		# used for Trajopt that optimizes it
 		x_raw = self.torchify(x)
 
@@ -75,7 +110,7 @@ class DeepMaxEntIRL:
 			x = x_trans
 
 		y = self.cost_nn(x)
-		if unnorm:
+		if not norm:
 			if torchify:
 				return y
 			else:
@@ -88,23 +123,35 @@ class DeepMaxEntIRL:
 				return y.detach()
 
 	def torchify(self, x):
+		"""
+		Transforms numpy input to torch tensors.
+		"""
 		x = torch.Tensor(x)
 		if len(x.shape) == 1:
 			x = x.unsqueeze(0)
 		return x
 
 	def update_normalizer(self):
-		# log max of expert demonstration data
+		"""
+		Update the max & min labels used for normalization based on all states in the demonstrations.
+		"""
 		# Note: if there are few expert demo, it might lead to too low max_label (feature values get high)
-		all_logits = self.function(self.full_exp_data, unnorm=True).view(-1).detach()
+		all_logits = self.function(self.full_exp_data, norm=False).view(-1).detach()
 		self.max_label = np.amax(all_logits.numpy())
 		self.min_label = np.amin(all_logits.numpy())
 
 	def get_trajs_with_cur_reward(self, n_traj, std, start, goal, pose):
-		# note the hack that they did in AIRL:
-		# mix in rew_trajs of previous iterations because otherwise reward
-		# can overfit to the most recent policy and forget from earlier
+		"""
+			Generate a set of induced trajectories for the current reward/cost.
+			----
+			Input:
+			n_traj		desired number of trajectories
+			start		start position for TrajOpt
+			end			end position for TrajOpt
+			pose		pose for TrajOpt
 
+			Output:  	List of n_traj induced trajectories in 97D
+		"""
 		if self.gen == 'waypt':
 			cur_rew_traj = generate_Gaus_MaxEnt_trajs(self.planner, std,
 													  n_traj, start, goal, pose, self.T, self.timestep)
@@ -117,13 +164,29 @@ class DeepMaxEntIRL:
 		return map_to_raw_dim(self.env, cur_rew_traj)
 
 	def get_total_cost(self, waypt_array):
-		# Input: right now only as a torch.Tensor
-		# note if a list of trajectories, maybe flatten?
-		waypt_rewards = self.function(waypt_array, torchify=True, unnorm=True)
-		return torch.mean(waypt_rewards, 0)
+		"""
+			Calculate the total cost over a nx97D input tensor using the unnormalized function.
+			----
+			Input:
+			waypt_array		a nx97D torch tensor of waypoints
 
-	def deep_max_ent_irl(self, n_iters, n_cur_rew_traj, lr=1e-3, weight_decay=0.01, n_traj_per_batch=1, std=0.01):
-		# TODO: how to minibatch? Maybe two data loaders
+			Output:  a scalar of the total cost under the current cost function
+		"""
+		waypt_rewards = self.function(waypt_array, torchify=True, norm=False)
+		return torch.sum(waypt_rewards, 0)
+
+	def deep_max_ent_irl(self, n_iters, n_cur_rew_traj=1, lr=1e-3, weight_decay=0.01, std=0.01):
+		"""
+			The training function for deep maximum entropy IRL.
+			----
+			Input:
+			n_iters				number of iterations (one iteration goes through all demonstrations once)
+			n_cur_rew_traj		number of induced trajectories calculated for the current reward
+			std					standard deviation used when calculating near-optimal trajectories
+			lr, weight_decay	settings for the optimizer
+
+			Output:  a scalar of the total cost under the current cost function
+		"""
 		loss_log = []
 		optimizer = optim.Adam(self.cost_nn.parameters(), lr=lr, weight_decay=weight_decay)
 		with trange(n_iters) as T:
@@ -139,17 +202,19 @@ class DeepMaxEntIRL:
 				for start, goal, goal_pose in zip(self.starts, self.goals, g_poses):
 					s_g_specific_trajs.append(self.get_trajs_with_cur_reward(n_cur_rew_traj, std, start, goal, goal_pose))
 
+				# make dataset random
 				s_g_indices = np.arange(len(self.starts)).tolist()
 				random.shuffle(s_g_indices)
 
 				loss_tracker = []
 				# iterate over start_goal configurations
 				for j in s_g_indices:
-					# self.update_normalizer() # if in the cost calculation unnorm=True, we don't need this)
 					indices = np.arange(min(len(s_g_specific_trajs[j]), len(self.s_g_exp_trajs[j]))).tolist()
 					random.shuffle(indices)
 
-					# Subloop for the batches within one S-G Configuration
+					# Subloop for the multiple trajectories within one S-G Configuration
+					# Note: one batch is exactly two trajectories, one demo and one induced one with the same starrt
+					# and goal as the demonstration.
 					for i in indices:
 						exp_traj = self.s_g_exp_trajs[j][i % len(self.s_g_exp_trajs[j])]
 						cur_rew_traj = s_g_specific_trajs[j][i % n_cur_rew_traj]
@@ -168,4 +233,6 @@ class DeepMaxEntIRL:
 				loss_log.append(sum(loss_tracker) / len(loss_tracker))
 
 				T.set_postfix(avg_loss=loss_log[-1])
+
+		# update normalizer once in the end
 		self.update_normalizer()

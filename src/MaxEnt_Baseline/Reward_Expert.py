@@ -1,19 +1,33 @@
-import math
-import matplotlib.pyplot as plt
-
 from baseline_utils import *
-import glob
-import pickle
-
 
 class GT_Reward_Expert:
+	"""
+	This class contains an environment with the GT reward and is used to simulate near-optimal demonstrations.
+
+	Initi:
+	gt_weights		List of weights for the feat_list features
+	feat_list		List of strings with the active features
+	gen				The mode with which induced near optimal trajectories with the GT cost are calculated
+	  				can be 'waypt' (get TrajOpt optimal trajectory and perturb waypoints)
+	  				or 'cost' (perturb the cost function slightly and get TrajOpt optimal trajectories for all of them)
+
+	starts			list of start positions
+	goals			list of goal positions
+	goal_poses		List of goal poses OR default None
+	combi			If True: take all combinations of start & goal pairs
+	T, timestep		Settings for TrajOpt
+
+	obj_center_dict	Dict of human & laptop positions used when calculating the feature values
+	feat_range_dict	Dict of factors for the different features to scale them to 0-1. -> used to calculate feature values
+
+	"""
 
 	def __init__(self, feat_list, gt_weights, gen, starts, goals, goal_poses=None, combi=False, T=20., timestep=0.5,
 				 obj_center_dict = {'HUMAN_CENTER': [-0.6, -0.55, 0.0], 'LAPTOP_CENTER': [-0.8, 0.0, 0.0]},
 				 feat_range_dict = {'table': 0.98, 'coffee': 1.0, 'laptop': 0.3, 'human': 0.3, 'efficiency': 0.22, 'proxemics': 0.3, 'betweenobjects': 0.2}):
 
-		# needs access to the environment & trajOpt...
-		env, planner = init_env(feat_list, gt_weights, object_centers=obj_center_dict, FEAT_RANGE=feat_range_dict)
+		# instantiate an environment & trajOpt planner
+		env, planner = init_env(feat_list, gt_weights, object_centers=obj_center_dict, feat_range=feat_range_dict)
 		self.env = env
 		self.planner = planner
 		self.s_g_exp_trajs = []
@@ -41,52 +55,32 @@ class GT_Reward_Expert:
 		self.T = T
 		self.timestep = timestep
 
-	def generate_expert_demos(self, n_per_s_g, scale=0.01):
-		# TODO: Try different soft-optimality methods
-
+	def generate_expert_demos(self, n_per_s_g, std=0.01):
+		"""
+			Use trajopt and some perturbation method to generate near-optimal demonstrations under the GT reward
+			----
+			Input:
+			n_per_s_g	how many demonstrations per start-goal pair
+			std			standard deviation used to induce near-optimality
+		"""
 		for start, goal, goal_pose in zip(self.starts, self.goals, self.goal_poses):
 			if self.gen == 'waypt':
-				expert_demos = generate_Gaus_MaxEnt_trajs(self.planner, self.env, scale,
+				expert_demos = generate_Gaus_MaxEnt_trajs(self.planner, self.env, std,
 														  n_per_s_g, start, goal, goal_pose, self.T, self.timestep)
 			elif self.gen == 'cost':
-				expert_demos = generate_cost_perturb_trajs(self.planner, self.env, scale,
+				expert_demos = generate_cost_perturb_trajs(self.planner, self.env, std,
 														   n_per_s_g, start, goal, goal_pose, self.T, self.timestep)
 			# add for that s_g configuration
 			self.s_g_exp_trajs.append(expert_demos)
 
-	def plot_expert_rew_dist(self):
-		# TODO: efficiency feature is missing
-		def calc_gt_reward(env, waypts):
-			per_waypt = np.matmul(np.array(env.featurize(waypts[:, :7])).T, np.array(env.weights))
-			return per_waypt.sum(), per_waypt
-
-		demo_rews = []
-		for s_g_demos in self.s_g_exp_trajs:
-			for demo in s_g_demos:
-				traj_rew, _ = calc_gt_reward(self.env, demo)
-				demo_rews.append(traj_rew)
-
-		#         print("GT reward is: ", demo_rews[0])
-		n_bins = 60
-		plt.hist(demo_rews, n_bins)
-		plt.show()
-
-	def cut_off_below_gt(self):
-		# TODO: efficiency feature is missing
-		def calc_gt_reward(env, waypts):
-			per_waypt = np.matmul(np.array(env.featurize(waypts[:, :7])).T, np.array(env.weights))
-			return per_waypt.sum(), per_waypt
-
-		for j, s_g_demos in enumerate(self.s_g_exp_trajs):
-			demo_rews = []
-			for demo in s_g_demos:
-				traj_rew, _ = calc_gt_reward(self.env, demo)
-				demo_rews.append(traj_rew)
-
-			self.s_g_exp_trajs[j] = [self.s_g_exp_trajs[j][i] for i in
-									 np.arange(len(self.s_g_exp_trajs[j]))[np.array(demo_rews) >= demo_rews[0]]]
-
 	def generate_rand_start_goal(self, n_trajs, min_dist=0.7):
+		"""
+			Generates and adds a random set of start-goal pairs that are at least min_dist apart
+			----
+			Input:
+			n_trajs		how many start-goal pairs
+			min_dist	minimum distance the start-goal pairs should be apart
+		"""
 		trajs = []
 		starts = []
 		goals = []
@@ -108,12 +102,21 @@ class GT_Reward_Expert:
 		self.goal_poses = self.goal_poses + [None]*len(starts)
 
 	def return_trajs(self):
+		"""
+			Returns the list of lists of expert demonstrations
+		"""
 		return self.s_g_exp_trajs
 
 	def load_trajs(self, trajectories):
+		"""
+			Loads in a list of lists of expert demonstrations
+		"""
 		self.s_g_exp_trajs = trajectories
 
 	def plot_trajs(self):
+		"""
+			Plot the current set of expert demonstrations in 3D space, color is the z coordinate.
+		"""
 		all_trajs = []
 		for s_g_demos in self.s_g_exp_trajs:
 			high_dim_demos = []

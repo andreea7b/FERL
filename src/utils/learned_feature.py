@@ -20,8 +20,8 @@ class LearnedFeature(object):
 
 	LF_dict		dict containing all settings for the learned feature, example see below
 
-	LF_dict = {'bet_data':5, 'sin':False, 'cos':False, 'rpy':False, 'lowdim':False, 'norot':False,
-           'noangles':True, '6D_laptop':False, '6D_human':False, '9D_coffee':False, 'EErot':True,
+	LF_dict = {'bet_data':5, 'sin':False, 'cos':False, 'rpy':False, 'lowdim':False, 'norot':True,
+           'noangles':True, '6D_laptop':False, '6D_human':False, '9D_coffee':False, 'EErot':False,
            'noxyz':False, 'subspace_heuristic': False}
 
 	bet_data [int]		: Number of copies of each Start-Goal pair to be added to the data set.

@@ -227,8 +227,7 @@ class Environment(object):
             nb_units -- number of NN units per layer
             checkpoint_name -- name of NN model to load (optional)
         """
-        LF_dict = {'convex': False, 'masked': False, 'n_ensamble': 1, 'bet_loss': "in_loss", 'bet_data': 1,
-				   'activation': "softplus", 'sin': False, 'cos': False, 'rpy': False, 'lowdim': False, 'EErot': False,
+		LF_dict = {'bet_data': 1, 'sin': False, 'cos': False, 'rpy': False, 'lowdim': False, 'EErot': False,
 				   'noxyz': False, 'norot': True, 'noangles': True, '6D_laptop': False, '6D_human': False,
 				   '9D_coffee': False}
 		self.learned_features.append(LearnedFeature(nb_layers, nb_units, LF_dict))
@@ -410,11 +409,11 @@ class Environment(object):
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
 			waypt[2] += math.pi
-		environment.robot.SetDOFValues(waypt)
-		coords = robotToCartesian(environment.robot)
+		self.env.robot.SetDOFValues(waypt)
+		coords = robotToCartesian(self.env.robot)
 		EE_coord_xy = coords[6][0:2]
-		object1_xy = np.array(environment.object_centers['OBJECT1'][0:2])
-		object2_xy = np.array(environment.object_centers['OBJECT2'][0:2])
+		object1_xy = np.array(self.env.object_centers['OBJECT1'][0:2])
+		object2_xy = np.array(self.env.object_centers['OBJECT2'][0:2])
 
 		# Determine where the point lies with respect to the segment between the two objects.
 		o1EE = np.linalg.norm(object1_xy - EE_coord_xy)

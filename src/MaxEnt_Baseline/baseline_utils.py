@@ -5,15 +5,22 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.utils.networks import masked_DNN
+import plotly.graph_objects as go
 
 # stuff for TarjOpt
 from src.planners.trajopt_planner import TrajoptPlanner
-from src.utils.traces_plot_utils import *
+from src.utils.plot_utils import *
 from src.utils.environment import Environment
 
 
 def map_to_raw_dim(env, expert_demos):
+	"""
+		Map all trajectories in a list from 7D configuration space to 97D raw input space
+		----
+		Input:
+		env				an environment object
+		expert_demos	list of demonstrations
+	"""
 	out_demos = []
 	for j, traj in enumerate(expert_demos):
 		raw_feature_traj = []
@@ -26,8 +33,20 @@ def map_to_raw_dim(env, expert_demos):
 	return out_demos
 
 
-def generate_cost_perturb_trajs(planner, env, scale, n_traj, start, goal, goal_pose, T, timestep):
-	# Idea: let's perturb the weights of the feature slightly to get different trajectories
+def generate_cost_perturb_trajs(planner, env, std, n_traj, start, goal, goal_pose, T, timestep):
+	"""
+		Generate a set of n_traj near optimal trajectories under the reward in the env.
+		Idea: let's perturb the cost and start-goal positions slightly to get a set of near-optimal trajectories
+		----
+		Input:
+		env						an environment object containing the current cost function as learned_feature
+		planner					TrajOpt planner object
+		std						standard deviation used for perturbation
+		n_traj					number of induced trajectories to produce
+		start, goal, goal_pose	settings for TrajOpt
+		T, timestep				settings for TrajOpt
+	"""
+
 	gt_weights = env.weights
 	# Step 1: generate nominal optimal plan
 	opt_traj = planner.replan(start, goal, goal_pose, T, timestep, seed=None)
@@ -37,10 +56,10 @@ def generate_cost_perturb_trajs(planner, env, scale, n_traj, start, goal, goal_p
 
 	for _ in range(n_traj - 1):
 		# perturb weights in env
-		env.weights = gt_weights + np.random.normal(loc=0, scale=scale, size=env.weights.shape[0])
+		env.weights = gt_weights + np.random.normal(loc=0, scale=std, size=env.weights.shape[0])
 		# perturb start & goal slightly
-		cur_start = start + np.random.normal(loc=0, scale=scale, size=7)
-		cur_goal = goal + np.random.normal(loc=0, scale=scale, size=7)
+		cur_start = start + np.random.normal(loc=0, scale=std, size=7)
+		cur_goal = goal + np.random.normal(loc=0, scale=std, size=7)
 		# plan with perturbed weights
 		traj = planner.replan(cur_start, cur_goal, goal_pose, T, timestep, seed=None).waypts
 		# append
@@ -52,8 +71,18 @@ def generate_cost_perturb_trajs(planner, env, scale, n_traj, start, goal, goal_p
 
 
 def generate_Gaus_MaxEnt_trajs(planner, scale, n_traj, start, goal, goal_pose, T, timestep):
-	# Idea: let's perturb the 7D angle waypoints with a normal to get soft-optimal trajectories
-	# Step 1: generate nominal optimal plan
+	"""
+		Generate a set of n_traj near optimal trajectories under the reward in the env.
+		Idea: let's perturb the 7D angle waypoints with a normal distribution to get soft-optimal trajectories
+		----
+		Input:
+		env						an environment object containing the current cost function as learned_feature
+		planner					TrajOpt planner object
+		std						standard deviation used for perturbation
+		n_traj					number of induced trajectories to produce
+		start, goal, goal_pose	settings for TrajOpt
+		T, timestep				settings for TrajOpt
+	"""
 	opt_traj = planner.replan(start, goal, goal_pose, T, timestep, seed=None)
 
 	# Step 2: generate n_demos-1 soft-optimal trajectories
@@ -70,10 +99,20 @@ def generate_Gaus_MaxEnt_trajs(planner, scale, n_traj, start, goal, goal_pose, T
 
 def init_env(feat_list, weights, env_only=False,
 			 object_centers={'HUMAN_CENTER': [-0.6, -0.55, 0.0], 'LAPTOP_CENTER': [-0.8, 0.0, 0.0]},
-			FEAT_RANGE = {'table': 0.98, 'coffee': 1.0, 'laptop': 0.3, 'human': 0.3, 'efficiency': 0.22, 'proxemics': 0.3, 'betweenobjects': 0.2}
+			 feat_range = {'table': 0.98, 'coffee': 1.0, 'laptop': 0.3, 'human': 0.3, 'efficiency': 0.22, 'proxemics': 0.3, 'betweenobjects': 0.2}
 			 ):
+	"""
+		initialize an openrave environment and TrajOpt planner and return them.
+		----
+		Input:
+		feat_list		List of strings with the active features
+		weights			List of weights for the feat_list features
+		env_only		if True, only an env object gets created & returned
+		obj_center_dict	Dict of human & laptop positions
+		feat_range_dict	Dict of factors for the different features to scale them to 0-1.
+	"""
 	model_filename = "jaco_dynamics"
-	feat_range = [FEAT_RANGE[feat_list[feat]] for feat in range(len(feat_list))]
+	feat_range = [feat_range[feat_list[feat]] for feat in range(len(feat_list))]
 
 	# Planner
 	max_iter = 50
@@ -88,6 +127,15 @@ def init_env(feat_list, weights, env_only=False,
 
 
 class ReLuNet(nn.Module):
+	"""
+		Neural Network with leaky ReLu and last layer softplus non-linearity used to approximate the cost/reward func
+		----
+		Init:
+		nb_layers		number of hidden layers for the NN
+		nb_units		number of hidden units per layer for the NN
+		raw_input_dim	dimensionality of input
+		input_residuals	How many of the last entries of the input are known features -> appended in the last layer
+	"""
 	def __init__(self, nb_layers, nb_units, raw_input_dim, input_residuals=0):
 		super(ReLuNet, self).__init__()
 
@@ -109,7 +157,7 @@ class ReLuNet(nn.Module):
 				torch.nn.init.zeros_(m.bias)
 		self.apply(weights_init)
 
-		# last layer combining from masked_DNN & known features
+		# last layer combining from DNN & known features
 		self.weighting = nn.Linear(1 + input_residuals, 1, bias=True)
 
 	def forward(self, x):
@@ -128,45 +176,14 @@ class ReLuNet(nn.Module):
 		return x
 
 
-class masked_Net(nn.Module):
-	def __init__(self, n_h_layers, nb_units, raw_input_dim, subspace_ranges, input_residuals=0):
-		super(masked_Net, self).__init__()
-
-		self.masked_DNN = masked_DNN(n_h_layers, nb_units, raw_input_dim, subspace_ranges)
-		self.input_residuals = input_residuals
-
-		# last layer combining from masked_DNN & known features
-		self.weighting = nn.Linear(1 + input_residuals, 1, bias=True)
-
-	def forward(self, x):
-		if self.input_residuals > 0:
-			x_residuals = x[:, -self.input_residuals:]
-			x = self.masked_DNN(x[:, :-self.input_residuals])
-			x = self.weighting(torch.cat((x, x_residuals), dim=1))
-		else:
-			x = self.masked_DNN(x)
-		return x
-
-
-def calculate_MEIRL_trajs_distance(IRL):
-    #  extract from all demos distances
-    MSE_distances =  []
-    if IRL.goal_poses is None:
-        g_poses = [None for _ in range(len(IRL.starts))]
-    else:
-        g_poses = IRL.goal_poses
-
-    for exp_traj, start, goal, goal_pose in zip(IRL.s_g_exp_trajs, IRL.starts, IRL.goals, g_poses):
-        # get induced traj
-        ind_traj = IRL.get_trajs_with_cur_reward(1, 0.01, start, goal, goal_pose)[0]
-        ind_euclidean = ind_traj[:, 88:91]
-        exp_euclidean = exp_traj[0][:, 88:91]
-        MSE = np.linalg.norm(ind_euclidean-exp_euclidean, axis=1)
-        MSE_distances.append(MSE.mean())
-
-	return sum(MSE_distances)/len(MSE_distances)
-
 def plot_IRL_comparison(IRL):
+	"""
+		Plot the set of demonstrations & the current set of induced trajectories with same start-goal position.
+		Color denotes the value of the current cost/reward function.
+		----
+		Input:
+		IRL		a DeepMaxEntIRL object
+	"""
 	# get laptop position
 	laptop = IRL.env.object_centers['LAPTOP_CENTER']
 	# Experts
@@ -207,7 +224,15 @@ def plot_IRL_comparison(IRL):
 
 
 def plot_trajs(demos, object_centers, title='some_title', func=None):
-
+	"""
+		Plot a set of demonstrations in 3D
+		----
+		Input:
+		demos			list of 97D demonstrations
+		object_centers	dict of centers for laptop and human
+		title			title for plot
+		func			function for labeling the points, if None the z-coordinate is used
+	"""
 	# get laptop position
 	laptop = object_centers['LAPTOP_CENTER']
 	human = object_centers['HUMAN_CENTER']
@@ -235,6 +260,15 @@ def plot_trajs(demos, object_centers, title='some_title', func=None):
 
 
 class TorchFeatureTransform(object):
+	"""
+		Torch version of all features that are in environment. Needed because to calculate the gradient for TrajOpt
+		the path from 7D input to cost output has to be fully differentiable (and with known features we need this).
+		----
+		Init:
+		object_centers	Dict of human & laptop positions used when calculating the feature values
+		feat_range_dict	Dict of factors for the different features to scale them to 0-1. -> used to calculate feature values
+		feat_list		List of strings of all active features
+	"""
 	def __init__(self, object_centers, feat_list, feat_range_dict):
 		self.object_centers = object_centers
 		self.feature_list = feat_list
@@ -307,32 +341,3 @@ class TorchFeatureTransform(object):
 		human_xy = torch.Tensor(self.object_centers['HUMAN_CENTER'][0:2])
 		dist = torch.norm(EE_coord_xy - human_xy, dim=1) - 0.3
 		return -((dist < 0) * dist) / self.feat_range[self.feature_list.index('human')]
-
-
-def get_coords_gt_cost(gen, expert_env, parent_dir, n_waypoints=1000):
-	# Step 1: Generate ground truth data, sampling uniformly from 7D angle space
-	if gen == True:
-		waypts = np.random.uniform(size=(n_waypoints, 7), low=0, high=np.pi*2)
-		# Transform to 97D
-		raw_waypts = []
-		for waypt in waypts:
-			raw_waypts.append(expert_env.raw_features(waypt))
-		raw_waypts = np.array(raw_waypts)
-
-	else:
-		# load coordinates above the table
-		data_file = parent_dir + '/data/gtdata/data_table.npz'
-		npzfile = np.load(data_file)
-		raw_waypts = npzfile['x']
-
-	# generate gt_labels
-	feat_idx = list(np.arange(expert_env.num_features))
-	features = [[0.0 for _ in range(len(raw_waypts))] for _ in range(0, len(expert_env.feature_list))]
-	for index in range(len(raw_waypts)):
-		for feat in range(len(feat_idx)):
-			features[feat][index] = expert_env.featurize_single(raw_waypts[index,:7], feat_idx[feat])
-
-	features = np.array(features).T
-	gt_cost = np.matmul(features, np.array(expert_env.weights).reshape(-1,1))
-
-	return raw_waypts, gt_cost
