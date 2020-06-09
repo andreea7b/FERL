@@ -62,7 +62,6 @@ def get_coords_gt_cost(expert_env, parent_dir, gen=False, n_waypoints=10000):
 		parent_dir	needed if gen=False and we load a random set of reachable points
 		gen			False -> loads random set of reachable points, if True: generates one
 		n_waypoints	If gen=True, this is the size of the set generated
-
 	"""
 	# Step 1: Generate ground truth data, sampling uniformly from 7D angle space
 	if gen == True:

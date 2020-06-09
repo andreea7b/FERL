@@ -101,29 +101,23 @@ def manipToCartesian(robot, offset_z):
 	offset = np.array([0,0,offset_z]).T
 	return xyz
 
-# def poseToRobot(robot, pose):
-# 	"""
-# 	Returns Inverse Kinematics solution for given pose.
-# 	------
-# 	Params: robot object
-# 			pose in xyz coordinates
-# 	Returns: robot configuration space IK solution
-# 	"""
-# 	links = robot.GetLinks()
-# 	manipTf = links[7].GetTransform()
-# 	rot = manipTf[0:3,0:3]
-# 	xyz = manipTf[0:3,3]
-# 	offset = np.array([0,0,offset_z]).T
-# 	return xyz
-# 	manip = robot.GetActiveManipulator()
-# 	ikmodel = databases.inversekinematics.InverseKinematicsModel(robot,iktype=IkParameterization.Type.Translation3D)
-#     if not ikmodel.load():
-#         ikmodel.autogenerate()
-#
-#     with robot: # lock environment and save robot state
-#         ikparam = IkParameterization(pose,ikmodel.iktype) # build up the translation3d ik query
-#         sols = manip.FindIKSolutions(ikparam, IkFilterOptions.CheckEnvCollisions) # get all solutions
-#         return sols[0]
+def poseToRobot(robot, pose):
+	"""
+	Returns Inverse Kinematics solution for given pose.
+	------
+	Params: robot object
+			pose in xyz coordinates
+	Returns: robot configuration space IK solution
+	"""
+	manip = robot.GetActiveManipulator()
+	ikmodel = databases.inversekinematics.InverseKinematicsModel(robot,iktype=IkParameterization.Type.Translation3D)
+	if not ikmodel.load():
+		ikmodel.autogenerate()
+
+	with robot: # lock environment and save robot state
+		ikparam = IkParameterization(pose,ikmodel.iktype) # build up the translation3d ik query
+		sols = manip.FindIKSolutions(ikparam, IkFilterOptions.CheckEnvCollisions) # get all solutions
+		return sols[0]
 
 def executePathSim(env,robot,waypts):
 	"""

@@ -409,11 +409,11 @@ class Environment(object):
 		if len(waypt) < 10:
 			waypt = np.append(waypt.reshape(7), np.array([0,0,0]))
 			waypt[2] += math.pi
-		self.env.robot.SetDOFValues(waypt)
-		coords = robotToCartesian(self.env.robot)
+		self.robot.SetDOFValues(waypt)
+		coords = robotToCartesian(self.robot)
 		EE_coord_xy = coords[6][0:2]
-		object1_xy = np.array(self.env.object_centers['OBJECT1'][0:2])
-		object2_xy = np.array(self.env.object_centers['OBJECT2'][0:2])
+		object1_xy = np.array(self.object_centers['OBJECT1'][0:2])
+		object2_xy = np.array(self.object_centers['OBJECT2'][0:2])
 
 		# Determine where the point lies with respect to the segment between the two objects.
 		o1EE = np.linalg.norm(object1_xy - EE_coord_xy)
