@@ -208,7 +208,7 @@ tqdm==4.45.0
 traitlets==4.3.3
 urdfdom-py==0.3.3
 urlgrabber==3.9.1
-urllib3==1.7.1
+urllib3==1.24.2
 vcstools==0.1.42
 VTK==5.8.0
 wcwidth==0.1.9
