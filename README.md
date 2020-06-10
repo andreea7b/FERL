@@ -54,7 +54,11 @@ We also provide a docker image with Ubuntu, ROS, and all necessary packages inst
 
 `docker run -it -p 8888:8888 -v <full path to cloned FERL repo>:/root/catkin_ws/src/FERL mariuswi/trajopt_ws:1.0`
 
-This will bring you to the command line of the docker container with port forwarding to 8888 activated. 
+This will bring you to the command line of the docker container with port forwarding to 8888 activated (e.g. for running the example notebooks).
 
 ## Run the Example Notebooks
 We provide two example notebooks both for our Method FERL, and for our baseline ME-IRL. The notebooks walk you through the reward learning process, for FERL: loading traces, training & examining a learned feature, and combining it with the known ones to a final reward, and for ME-IRL: loading demonstrations, and running maximum entropy IRL to learn a reward function directly from state.
+
+To run them and explore our method, just run the docker image. Start jupyter in the container with:
+`jupyter notebook --port=8888 --no-browser --ip=0.0.0.0 --allow-root`
+And then navigate to src/example_notebooks.
