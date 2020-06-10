@@ -100,7 +100,8 @@ class FeatureElicitator():
 		weights = rospy.get_param("setup/feat_weights")
 		FEAT_RANGE = rospy.get_param("setup/FEAT_RANGE")
 		feat_range = [FEAT_RANGE[feat_list[feat]] for feat in range(len(feat_list))]
-		self.environment = Environment(model_filename, object_centers, feat_list, feat_range, np.array(weights))
+        LF_dict = rospy.get_param("setup/LF_dict")
+		self.environment = Environment(model_filename, object_centers, feat_list, feat_range, np.array(weights), LF_dict)
 
 		# ----- Planner Setup ----- #
 		# Retrieve the planner specific parameters.

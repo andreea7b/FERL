@@ -1,8 +1,7 @@
 setup:
     prefix: 'j2s7s300_driver'
     model_filename: "jaco_dynamics"
-    object_centers: {'OBJECT1': [-0.6,-0.2,0.0], 'OBJECT2': [-0.2,0.0,0.0]}
-    # {'OBJECT1': [-0.6,-0.2,0.0], 'OBJECT2': [-0.2,0.0,0.0]} {'HUMAN_CENTER': [-0.2,-0.5,0.6], 'LAPTOP_CENTER': [-0.3,-0.3,0.0]}
+    object_centers: {'HUMAN_CENTER': [-0.2,-0.5,0.6], 'LAPTOP_CENTER': [0.0,-0.8,0.0]}
     feat_list: ["table"]
     feat_weights: [0.0]
     start: [104.2, 151.6, 183.8, 101.8, 224.2, 216.9, 310.8]
@@ -15,6 +14,7 @@ setup:
     INTERACTION_TORQUE_THRESHOLD: [0.88414821, 17.22751856, -0.40134936,  6.23537946, -0.90013662, 1.32379884,  0.10218059]
     INTERACTION_TORQUE_EPSILON: [4.0, 5.0, 3.0, 4.0, 1.5, 1.5, 1.5]
     FEAT_RANGE: {'table':0.98, 'coffee':1.0, 'laptop':0.3, 'human':0.3, 'efficiency':0.22, 'proxemics': 0.3, 'betweenobjects': 0.2}
+    LF_dict: {'bet_data': 5, 'sin': False, 'cos': False, 'rpy': False, 'lowdim': False, 'EErot': True, 'noxyz': False, 'norot': False, 'noangles': True, '6D_laptop': False, '6D_human': False, '9D_coffee': False}
     CONFIDENCE_THRESHOLD: 1.0
     N_QUERIES: 10
     nb_layers: 3

@@ -13,7 +13,7 @@ class Environment(object):
 	This class creates an OpenRave environment and contains all the
 	functionality needed for custom features and constraints.
 	"""
-	def __init__(self, model_filename, object_centers, feat_list, feat_range, feat_weights, viewer=True):
+	def __init__(self, model_filename, object_centers, feat_list, feat_range, feat_weights, LF_dict=None, viewer=True):
 		# ---- Create environment ---- #
 		self.env, self.robot = initialize(model_filename, viewer=viewer)
 
@@ -57,6 +57,9 @@ class Environment(object):
 
 		# Initialize the utility function weight vector.
 		self.weights = feat_weights
+
+        # Initialize LF_dict optionally for learned features.
+        self.LF_dict = LF_dict
 
 	# -- Compute features for all waypoints in trajectory. -- #
 	def featurize(self, waypts, feat_idx=None):
@@ -227,10 +230,7 @@ class Environment(object):
             nb_units -- number of NN units per layer
             checkpoint_name -- name of NN model to load (optional)
         """
-		LF_dict = {'bet_data': 1, 'sin': False, 'cos': False, 'rpy': False, 'lowdim': False, 'EErot': False,
-				   'noxyz': False, 'norot': True, 'noangles': True, '6D_laptop': False, '6D_human': False,
-				   '9D_coffee': False}
-		self.learned_features.append(LearnedFeature(nb_layers, nb_units, LF_dict))
+		self.learned_features.append(LearnedFeature(nb_layers, nb_units, self.LF_dict))
 		self.feature_list.append('learned_feature')
 		self.num_features += 1
 		# initialize new feature weight with zero
