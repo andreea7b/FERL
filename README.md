@@ -60,5 +60,7 @@ This will bring you to the command line of the docker container with port forwar
 We provide two example notebooks both for our Method FERL, and for our baseline ME-IRL. The notebooks walk you through the reward learning process, for FERL: loading traces, training & examining a learned feature, and combining it with the known ones to a final reward, and for ME-IRL: loading demonstrations, and running maximum entropy IRL to learn a reward function directly from state.
 
 To run them and explore our method, just run the docker image. Start jupyter in the container with:
+
 `jupyter notebook --port=8888 --no-browser --ip=0.0.0.0 --allow-root`
-And then navigate to src/example_notebooks.
+
+Navigate to src/example_notebooks, and have fun interactively exploring FERL.
