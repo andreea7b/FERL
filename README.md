@@ -43,7 +43,7 @@ Some important parameters for specifying the task in the yaml include:
 Some task-specific parameters in addition to the ones above include
 environment, planner, controller, and reward learner specific parameters that have been tuned and
 don't need to be changed. If you have questions about how to change those,
-contact abobu<at>berkeley.edu.
+contact the authors.
 
 ### References
 * TrajOpt Planner: http://rll.berkeley.edu/trajopt/doc/sphinx_build/html/index.html

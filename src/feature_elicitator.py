@@ -5,8 +5,6 @@ maintains a fixed distance to a target. Additionally, it supports human-robot
 interaction in the form of online physical corrections.
 The novelty is that it contains a protocol for elicitating new features from
 human input provided to the robot.
-
-Author: Andreea Bobu (abobu@eecs.berkeley.edu)
 """
 import torch
 import roslib; roslib.load_manifest('kinova_demo')
