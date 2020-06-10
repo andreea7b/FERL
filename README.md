@@ -43,10 +43,18 @@ Some important parameters for specifying the task in the yaml include:
 Some task-specific parameters in addition to the ones above include
 environment, planner, controller, and reward learner specific parameters that have been tuned and
 don't need to be changed. If you have questions about how to change those,
-contact abobu@berkeley.edu.
+contact abobu<at>berkeley.edu.
 
 ### References
 * TrajOpt Planner: http://rll.berkeley.edu/trajopt/doc/sphinx_build/html/index.html
 * PID Control Reference: https://w3.cs.jmu.edu/spragunr/CS354/handouts/pid.pdf
 
 ## Running the FERL Feature Learning in a Docker container
+We also provide a docker image with Ubuntu, ROS, and all necessary packages installed. Just clone the FERL repo and then run the following docker command to download and run the docker image.
+
+`docker run -it -p 8888:8888 -v <full path to cloned FERL repo>:/root/catkin_ws/src/FERL mariuswi/trajopt_ws:1.0`
+
+This will bring you to the command line of the docker container with port forwarding to 8888 activated. 
+
+## Run the Example Notebooks
+We provide two example notebooks both for our Method FERL, and for our baseline ME-IRL. The notebooks walk you through the reward learning process, for FERL: loading traces, training & examining a learned feature, and combining it with the known ones to a final reward, and for ME-IRL: loading demonstrations, and running maximum entropy IRL to learn a reward function directly from state.
