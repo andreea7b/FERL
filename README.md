@@ -16,9 +16,6 @@ In a new terminal, turn on the Kinova API by typing:
 ```
 roslaunch kinova_bringup kinova_robot.launch kinova_robotType:=j2s7s300 use_urdf:=true
 ```
-### Planning and Control
-We implement a PID controller mentioned in our references, and use TrajOpt for
-trajectory optimization planning. Given a start, a goal, and other task specifications, the planner plans an optimal path, and the controller executes it. A human can apply a physical correction to change the way the robot is executing the task. Depending on the learning method used, the robot learns from the human torque accordingly and updates its trajectory in real-time. With FERL, if the robot has low confidence in its ability to explain the human correction, it enters a feature learning stage: the robot stops following the planned trajectory and, instead, listens for feature traces from the human. Once it learns a new feature from these traces, the robot updates its reward, and resumes execution of the new path, from the position where it paused.
 
 ### Feature Expansive Reward Learning
 To demonstrate FERL on the Jaco arm, run (in another terminal window):
@@ -27,13 +24,15 @@ roslaunch FERL feature_elicitator.launch
 ```
 The launch file first reads the corresponding yaml `config/feature_elicitator.yaml` containing all important parameters, then runs `feature_elicitator.py`. Given a start, a goal, and other task specifications, a planner plans an optimal path, then the controller executes it. For a selection of planners and controllers, see `src/planners` (TrajOpt supported currently) and `src/controllers` (PID supported currently). The yaml file should contain parameter information to instantiate these two components.
 
+A human can apply a physical correction to change the way the robot is executing the task. Depending on the learning method used, the robot learns from the human torque accordingly and updates its trajectory in real-time. With FERL, if the robot has low confidence in its ability to explain the human correction, it enters a feature learning stage: the robot stops following the planned trajectory and, instead, listens for feature traces from the human. Once it learns a new feature from these traces, the robot updates its reward, and resumes execution of the new path, from the position where it paused.
+
 Some important parameters for specifying the task in the yaml include:
 * `start`: Jaco start configuration
 * `goal`: Jaco goal configuration
 * `goal_pose`: Jaco goal pose (optional)
 * `T`: Time duration of the path
 * `timestep`: Timestep dicretization between two consecutive waypoints on a path.
-* `feat_list`: List of features the robot's internal representation contains. Options: "table" (distance to table), "coffee" (coffee cup orientation), "human" (distance to human), "laptop" (distance to laptop), "proxemics" (distance from the human, more penalized in front than on the sides), "efficiency" (velocity), "between objects" (distance from between two objects).
+* `feat_list`: List of features the robot's initial internal representation contains. Options: "table" (distance to table), "coffee" (coffee cup orientation), "human" (distance to human), "laptop" (distance to laptop), "proxemics" (distance from the human, more penalized in front than on the sides), "efficiency" (velocity), "between objects" (distance from between two objects).
 * `feat_weights`: Initial feature weights.
 * `CONFIDENCE_THRESHOLD`: Threshold for confidence estimate below which the
   algorithm enters feature learning mode.
@@ -50,4 +49,4 @@ contact abobu@berkeley.edu.
 * TrajOpt Planner: http://rll.berkeley.edu/trajopt/doc/sphinx_build/html/index.html
 * PID Control Reference: https://w3.cs.jmu.edu/spragunr/CS354/handouts/pid.pdf
 
-## Running the FERL Feature Learning only in a Docker container
+## Running the FERL Feature Learning in a Docker container
