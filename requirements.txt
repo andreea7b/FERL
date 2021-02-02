@@ -6,7 +6,7 @@ backports-abc==0.5
 backports.functools-lru-cache==1.6.1
 backports.shutil-get-terminal-size==1.0.0
 backports.ssl-match-hostname==3.7.0.1
-bleach==3.1.4
+bleach==3.3.0
 bondpy==1.7.20
 bzr==2.7.0.dev1
 camera-calibration==1.12.23
