@@ -96,7 +96,7 @@ py==1.8.1
 pycrypto==2.6.1
 pycurl==7.19.3
 pydot==1.0.28
-Pygments==2.5.2
+Pygments==2.7.4
 PyOpenGL==3.0.2
 pyparsing==2.4.7
 pyrsistent==0.16.0
