@@ -46,7 +46,7 @@ gencpp==0.5.5
 genlisp==0.4.15
 genmsg==0.5.8
 genpy==0.5.10
-html5lib==0.999
+html5lib==0.999999999
 image-geometry==1.11.16
 importlib-metadata==1.6.0
 interactive-markers==1.11.4
