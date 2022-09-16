@@ -210,7 +210,7 @@ urdfdom-py==0.3.3
 urlgrabber==3.9.1
 urllib3==1.7.1
 vcstools==0.1.42
-VTK==5.8.0
+VTK==9.0.1
 wcwidth==0.1.9
 webencodings==0.5.1
 wstool==0.1.17
